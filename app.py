@@ -17,7 +17,7 @@ def extraer_fecha_exacta(tag_time):
             config_dict = json.loads(config_str)
             full_date = config_dict.get('publishDate', '')
             if full_date:
-                return full_date[:10]
+                return str(full_date)[:10]
     except:
         pass
     texto = tag_time.get_text(strip=True)
@@ -54,7 +54,7 @@ def iniciar_scraping(url_autor):
                 tag_enlace = art.find('a', href=True)
                 titular = tag_titulo.get_text(strip=True) if tag_titulo else ""
                 tag_time = art.find('time')
-                fecha_str = extraer_fecha_exacta(tag_time) if tag_time else "2000-01-01"
+                fecha_str = extraer_fecha_exacta(tag_time)
                 
                 url_rel = tag_enlace['href'] if tag_enlace else ""
                 url_completa = url_rel if url_rel.startswith('http') else f"https://www.larazon.es{url_rel}"
@@ -80,40 +80,43 @@ if st.button("🚀 Actualizar Datos"):
     df = iniciar_scraping("https://www.larazon.es/autores/claudia-zapater")
     
     if not df.empty:
+        # Limpieza y formateo de datos
         df['Fecha_dt'] = pd.to_datetime(df['Fecha'])
         df = df.sort_values('Fecha_dt')
         df['Mes-Año'] = df['Fecha_dt'].dt.strftime('%b-%Y').str.upper()
         
-        # Agrupación y Cálculo
+        # Agrupación y Cálculo (Aseguramos tipos numéricos)
         conteo_mensual = df.groupby(['Mes-Año'], sort=False).size().reset_index(name='Cantidad')
-        conteo_mensual['Euros'] = conteo_mensual['Cantidad'] * 80
+        conteo_mensual['Cantidad'] = conteo_mensual['Cantidad'].astype(int)
+        conteo_mensual['Euros'] = (conteo_mensual['Cantidad'] * 80).astype(float)
         
-        # Lógica de escala dinámica
+        # Definición de variables para el gráfico
         if vista_grafico == "Nº de Noticias":
             y_col = 'Cantidad'
             titulo_y = "Cantidad de artículos"
-            formato_tooltip = 'd'
-            limite_y = int(conteo_mensual['Cantidad'].max()) + 5
+            limite_y = float(conteo_mensual['Cantidad'].max() + 5)
         else:
             y_col = 'Euros'
             titulo_y = "Importe total (€)"
-            formato_tooltip = '.2f'
-            limite_y = int(conteo_mensual['Euros'].max()) + (5 * 80)
+            limite_y = float(conteo_mensual['Euros'].max() + 400)
 
-        # Gráfico Altair
-        chart = alt.Chart(conteo_mensual).mark_bar(color='#E63946', cornerRadiusTop=5).encode(
+        # Gráfico Altair (Versión simplificada para evitar SchemaValidationError)
+        st.write(f"### 📈 {titulo_y} por Mes")
+        
+        chart = alt.Chart(conteo_mensual).mark_bar(color='#E63946').encode(
             x=alt.X('Mes-Año:N', title='Mes', sort=None),
             y=alt.Y(f'{y_col}:Q', title=titulo_y, scale=alt.Scale(domain=[0, limite_y])),
-            tooltip=[alt.Tooltip('Mes-Año'), alt.Tooltip(f'{y_col}', format=formato_tooltip)]
-        ).properties(height=450)
+            tooltip=['Mes-Año', y_col]
+        ).properties(height=400)
         
         st.altair_chart(chart, use_container_width=True)
 
         # Métricas
         m1, m2, m3 = st.columns(3)
-        m1.metric("Total Artículos", len(df))
+        total_noticias = len(df)
+        m1.metric("Total Artículos", total_noticias)
         m2.metric("Precio unitario", "80 €")
-        m3.metric("Total Facturado", f"{len(df)*80} €")
+        m3.metric("Total Facturado", f"{total_noticias * 80} €")
 
         # Tabla
         st.write("### 📋 Histórico de Artículos")
@@ -128,4 +131,4 @@ if st.button("🚀 Actualizar Datos"):
             hide_index=True
         )
     else:
-        st.warning("No hay datos para mostrar.")
+        st.warning("No hay datos para mostrar de 2025.")
