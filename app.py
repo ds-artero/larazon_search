@@ -8,7 +8,7 @@ import altair as alt
 from datetime import datetime
 
 # --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="Scraper Claudia Zapater", layout="wide", page_icon="📝")
+st.set_page_config(page_title="Gestión de Artículos - Claudia Zapater", layout="wide", page_icon="💶")
 
 def extraer_fecha_exacta(tag_time):
     try:
@@ -28,109 +28,95 @@ def extraer_fecha_exacta(tag_time):
 def iniciar_scraping(url_autor):
     noticias = []
     pagina = 1
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
-    
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0"}
     status_placeholder = st.empty()
     
     while True:
         url_actual = f"{url_autor}/{pagina}" if pagina > 1 else url_autor
-        status_placeholder.info(f"🔍 Analizando página {pagina}...")
+        status_placeholder.info(f"🔍 Escaneando página {pagina}...")
         
         try:
             response = requests.get(url_actual, headers=headers, timeout=15)
             if response.status_code != 200:
                 break
-                
             soup = BeautifulSoup(response.text, 'html.parser')
             articulos = soup.find_all('article')
-            
             if not articulos:
                 break
                 
             for art in articulos:
-                # 1. Verificar Autor (FILTRO SOLICITADO)
-                # Buscamos enlaces o textos que mencionen específicamente a Claudia Zapater
+                # Filtro de Autor Exacto
                 autor_tag = art.find('a', string=lambda t: t and "Claudia Zapater" in t)
                 if not autor_tag:
-                    # Intento alternativo por si el nombre está en un span o clase específica
-                    autor_tag = art.select_one('.article__author, .card__author')
-                    if autor_tag and "Claudia Zapater" not in autor_tag.get_text():
-                        continue # Si hay autor pero no es ella, saltamos
-                    if not autor_tag:
-                        # Si no encontramos rastro del autor en el card, 
-                        # por precaución en este caso permitimos si el titular existe 
-                        # (opcional: puedes poner 'continue' aquí si quieres ser 100% estricto)
-                        pass
+                    continue 
 
-                # 2. Extraer Título
                 tag_titulo = art.find(['h2', 'h3'])
                 tag_enlace = art.find('a', href=True)
-                
-                titular = ""
-                if tag_titulo:
-                    titular = tag_titulo.get_text(strip=True)
-                if len(titular) < 5 and tag_enlace:
-                    titular = tag_enlace.get_text(strip=True) or tag_enlace.get('title', '')
-                
-                # 3. Extraer Fecha
+                titular = tag_titulo.get_text(strip=True) if tag_titulo else ""
                 tag_time = art.find('time')
                 fecha_str = extraer_fecha_exacta(tag_time) if tag_time else "2000-01-01"
                 
-                # 4. Extraer URL
                 url_rel = tag_enlace['href'] if tag_enlace else ""
                 url_completa = url_rel if url_rel.startswith('http') else f"https://www.larazon.es{url_rel}"
 
-                # FILTRO FINAL: Titular presente + Fecha 2025+
                 if titular and fecha_str >= "2025-01-01":
-                    noticias.append({
-                        "Título": titular,
-                        "Fecha": fecha_str,
-                        "URL": url_completa
-                    })
+                    noticias.append({"Título": titular, "Fecha": fecha_str, "URL": url_completa})
                 elif fecha_str < "2025-01-01" and fecha_str != "2000-01-01":
-                    status_placeholder.success("✅ Filtrado por autor y fecha completado.")
+                    status_placeholder.success("✅ Extracción finalizada.")
                     return pd.DataFrame(noticias)
             
             pagina += 1
-            time.sleep(0.5)
-            
-        except Exception as e:
-            st.error(f"Error: {e}")
+            time.sleep(0.4)
+        except:
             break
-
     return pd.DataFrame(noticias)
 
-# --- INTERFAZ STREAMLIT ---
-st.title("📊 Monitor de Publicaciones: Claudia Zapater")
-st.markdown("Solo se muestran artículos firmados por el autor y publicados desde **2025**.")
+# --- INTERFAZ ---
+st.title("💶 Monitor de Producción y Facturación")
+st.sidebar.header("Configuración")
+vista_grafico = st.sidebar.radio("Ver gráfico por:", ["Nº de Noticias", "Euros (€)"])
 
-if st.button("🚀 Ejecutar Scraper"):
+if st.button("🚀 Actualizar Datos"):
     df = iniciar_scraping("https://www.larazon.es/autores/claudia-zapater")
     
     if not df.empty:
         df['Fecha_dt'] = pd.to_datetime(df['Fecha'])
         df = df.sort_values('Fecha_dt')
-        
-        # Formato DEC-2025
         df['Mes-Año'] = df['Fecha_dt'].dt.strftime('%b-%Y').str.upper()
         
+        # Agrupación y Cálculo
         conteo_mensual = df.groupby(['Mes-Año'], sort=False).size().reset_index(name='Cantidad')
+        conteo_mensual['Euros'] = conteo_mensual['Cantidad'] * 80
         
-        max_val = int(conteo_mensual['Cantidad'].max())
-        limite_y = max_val + 5
+        # Lógica de escala dinámica
+        if vista_grafico == "Nº de Noticias":
+            y_col = 'Cantidad'
+            titulo_y = "Cantidad de artículos"
+            formato_tooltip = 'd'
+            limite_y = int(conteo_mensual['Cantidad'].max()) + 5
+        else:
+            y_col = 'Euros'
+            titulo_y = "Importe total (€)"
+            formato_tooltip = '.2f'
+            limite_y = int(conteo_mensual['Euros'].max()) + (5 * 80)
 
         # Gráfico Altair
-        chart = alt.Chart(conteo_mensual).mark_bar(color='#2A9D8F').encode(
-            x=alt.X('Mes-Año:N', title='Mes de publicación', sort=None),
-            y=alt.Y('Cantidad:Q', title='Artículos', scale=alt.Scale(domain=[0, limite_y])),
-            tooltip=['Mes-Año', 'Cantidad']
-        ).properties(height=400)
+        chart = alt.Chart(conteo_mensual).mark_bar(color='#E63946', cornerRadiusTop=5).encode(
+            x=alt.X('Mes-Año:N', title='Mes', sort=None),
+            y=alt.Y(f'{y_col}:Q', title=titulo_y, scale=alt.Scale(domain=[0, limite_y])),
+            tooltip=[alt.Tooltip('Mes-Año'), alt.Tooltip(f'{y_col}', format=formato_tooltip)]
+        ).properties(height=450)
         
         st.altair_chart(chart, use_container_width=True)
 
+        # Métricas
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Total Artículos", len(df))
+        m2.metric("Precio unitario", "80 €")
+        m3.metric("Total Facturado", f"{len(df)*80} €")
+
         # Tabla
+        st.write("### 📋 Histórico de Artículos")
         df_display = df.sort_values('Fecha_dt', ascending=False).copy()
         df_display['Fecha'] = df_display['Fecha_dt'].dt.strftime('%d-%m-%Y')
         df_display.insert(0, '№', range(1, len(df_display) + 1))
@@ -142,4 +128,4 @@ if st.button("🚀 Ejecutar Scraper"):
             hide_index=True
         )
     else:
-        st.warning("No se encontraron artículos firmados por Claudia Zapater en 2025.")
+        st.warning("No hay datos para mostrar.")
