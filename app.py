@@ -85,23 +85,30 @@ with st.sidebar:
 if st.session_state.df_original is not None:
     df_total = st.session_state.df_original
     
-    # --- CÁLCULOS DE TENDENCIA ---
-    meses_transcurridos = df_total['Orden_Mes'].nunique()
+    # --- LÓGICA DE PROYECCIÓN NORMALIZADA POR DÍAS ---
+    fecha_inicio_anio = datetime(2025, 1, 1)
+    fecha_hoy = datetime.now()
+    # Calculamos días exactos transcurridos en el año
+    dias_transcurridos = (fecha_hoy - fecha_inicio_anio).days + 1
+    
     total_arts = len(df_total)
-    promedio_mensual = total_arts / meses_transcurridos if meses_transcurridos > 0 else 0
-    proyeccion_anual = promedio_mensual * 12
+    ritmo_diario = total_arts / dias_transcurridos
+    
+    # Promedio mensual "justo" (independiente de si el mes es corto o acaba de empezar)
+    promedio_mensual_ajustado = ritmo_diario * 30.41  # Media de días en un mes
+    proyeccion_anual = ritmo_diario * 365
 
     # 1. MÉTRICAS PRINCIPALES
-    st.write("### 📊 Resumen General 2025")
+    st.write(f"### 📊 Resumen de Rendimiento (Día {dias_transcurridos} de 365)")
     m1, m2, m3 = st.columns(3)
-    m1.metric("Total Artículos", total_arts)
-    m2.metric("Promedio Mensual", f"{promedio_mensual:.1f} art.")
-    m3.metric("Proyección Final de Año", f"{int(proyeccion_anual)} art.")
+    m1.metric("Total Artículos Real", total_arts)
+    m2.metric("Ritmo Mensual Ajustado", f"{promedio_mensual_ajustado:.1f} art/mes")
+    m3.metric("Proyección Anual", f"{int(proyeccion_anual)} artículos")
 
     c1, c2, c3 = st.columns(3)
-    c1.metric("Total Facturado", f"{total_arts * 80} €")
-    c2.metric("Precio unitario", "80 €")
-    c3.metric("Proyección Facturación", f"{int(proyeccion_anual * 80)} €")
+    c1.metric("Facturado hoy", f"{total_arts * 80} €")
+    c2.metric("Promedio Ingresos/Mes", f"{int(promedio_mensual_ajustado * 80)} €")
+    c3.metric("Expectativa Facturación 2025", f"{int(proyeccion_anual * 80)} €")
 
     # 2. GRÁFICA CON LÍNEA DE TENDENCIA
     conteo_mensual = df_total.groupby(['Mes-Grafico', 'Mes-Filtro', 'Orden_Mes'], sort=False).size().reset_index(name='Cantidad')
@@ -114,7 +121,6 @@ if st.session_state.df_original is not None:
 
     st.write(f"### 📈 Evolución y Tendencia")
     
-    # Base de las barras
     base = alt.Chart(conteo_mensual).encode(
         x=alt.X('Mes-Grafico:N', title='Mes', sort=alt.SortField(field='Orden_Mes', order='ascending'))
     )
@@ -125,7 +131,7 @@ if st.session_state.df_original is not None:
         tooltip=['Mes-Grafico', y_col]
     )
 
-    # Línea de tendencia (Regresión Lineal)
+    # Línea de tendencia basada en los datos reales de los meses cerrados y el actual
     linea_tendencia = barras.transform_regression('Orden_Mes', y_col).mark_line(
         color='#1D3557', 
         strokeDash=[5,5],
@@ -151,4 +157,4 @@ if st.session_state.df_original is not None:
         hide_index=True
     )
 else:
-    st.info("👋 Haz clic en 'Actualizar Datos' para calcular tu proyección.")
+    st.info("👋 Haz clic en 'Actualizar Datos' para analizar tu ritmo de publicación.")
