@@ -28,6 +28,8 @@ def iniciar_scraping(url_autor):
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0"}
     status_placeholder = st.empty()
     
+    # Filtramos desde el inicio de 2025 para tener histórico, 
+    # pero la app priorizará 2026 para los cálculos
     while True:
         url_actual = f"{url_autor}/{pagina}" if pagina > 1 else url_autor
         status_placeholder.info(f"🔍 Escaneando página {pagina}...")
@@ -46,6 +48,7 @@ def iniciar_scraping(url_autor):
                 url_rel = tag_enlace['href'] if tag_enlace else ""
                 url_completa = url_rel if url_rel.startswith('http') else f"https://www.larazon.es{url_rel}"
 
+                # Recogemos datos desde 2025 para que el gráfico tenga contexto histórico
                 if titular and fecha_str >= "2025-01-01":
                     noticias.append({"Título": titular, "Fecha": fecha_str, "URL": url_completa})
                 elif fecha_str < "2025-01-01" and fecha_str != "2000-01-01":
@@ -69,6 +72,7 @@ with st.sidebar:
         df_raw = iniciar_scraping("https://www.larazon.es/autores/claudia-zapater")
         if not df_raw.empty:
             df_raw['Fecha_dt'] = pd.to_datetime(df_raw['Fecha'])
+            df_raw['Año'] = df_raw['Fecha_dt'].dt.year
             df_raw['Mes-Filtro'] = df_raw['Fecha_dt'].dt.strftime('%m-%Y')
             df_raw['Mes-Grafico'] = df_raw['Fecha_dt'].dt.strftime('%b-%Y').str.upper()
             df_raw['Orden_Mes'] = df_raw['Fecha_dt'].dt.year * 100 + df_raw['Fecha_dt'].dt.month
@@ -83,34 +87,33 @@ with st.sidebar:
 
 # --- RENDERIZADO ---
 if st.session_state.df_original is not None:
+    # SEPARACIÓN POR AÑO PARA CÁLCULOS
     df_total = st.session_state.df_original
+    df_2026 = df_total[df_total['Año'] == 2026].copy()
     
-    # --- LÓGICA DE PROYECCIÓN NORMALIZADA POR DÍAS ---
-    fecha_inicio_anio = datetime(2025, 1, 1)
+    # --- LÓGICA DE PROYECCIÓN 2026 ---
+    fecha_inicio_2026 = datetime(2026, 1, 1)
     fecha_hoy = datetime.now()
-    # Calculamos días exactos transcurridos en el año
-    dias_transcurridos = (fecha_hoy - fecha_inicio_anio).days + 1
+    dias_transcurridos_2026 = (fecha_hoy - fecha_inicio_2026).days + 1
     
-    total_arts = len(df_total)
-    ritmo_diario = total_arts / dias_transcurridos
-    
-    # Promedio mensual "justo" (independiente de si el mes es corto o acaba de empezar)
-    promedio_mensual_ajustado = ritmo_diario * 30.41  # Media de días en un mes
-    proyeccion_anual = ritmo_diario * 365
+    total_arts_2026 = len(df_2026)
+    ritmo_diario_2026 = total_arts_2026 / dias_transcurridos_2026
+    promedio_mensual_2026 = ritmo_diario_2026 * 30.41
+    proyeccion_anual_2026 = ritmo_diario_2026 * 365
 
-    # 1. MÉTRICAS PRINCIPALES
-    st.write(f"### 📊 Resumen de Rendimiento (Día {dias_transcurridos} de 365)")
+    # 1. MÉTRICAS (SOLO 2026)
+    st.write(f"### 📊 Resumen Rendimiento 2026 (Día {dias_transcurridos_2026} de 365)")
     m1, m2, m3 = st.columns(3)
-    m1.metric("Total Artículos Real", total_arts)
-    m2.metric("Ritmo Mensual Ajustado", f"{promedio_mensual_ajustado:.1f} art/mes")
-    m3.metric("Proyección Anual", f"{int(proyeccion_anual)} artículos")
+    m1.metric("Artículos 2026", total_arts_2026)
+    m2.metric("Ritmo Mensual Ajustado", f"{promedio_mensual_2026:.1f} art/mes")
+    m3.metric("Proyección Final 2026", f"{int(proyeccion_anual_2026)} art.")
 
     c1, c2, c3 = st.columns(3)
-    c1.metric("Facturado hoy", f"{total_arts * 80} €")
-    c2.metric("Promedio Ingresos/Mes", f"{int(promedio_mensual_ajustado * 80)} €")
-    c3.metric("Expectativa Facturación 2025", f"{int(proyeccion_anual * 80)} €")
+    c1.metric("Facturado 2026", f"{total_arts_2026 * 80} €")
+    c2.metric("Media Ingresos/Mes", f"{int(promedio_mensual_2026 * 80)} €")
+    c3.metric("Expectativa Total 2026", f"{int(proyeccion_anual_2026 * 80)} €")
 
-    # 2. GRÁFICA CON LÍNEA DE TENDENCIA
+    # 2. GRÁFICA (CONTEXTO HISTÓRICO + HIGHLIGHT)
     conteo_mensual = df_total.groupby(['Mes-Grafico', 'Mes-Filtro', 'Orden_Mes'], sort=False).size().reset_index(name='Cantidad')
     conteo_mensual['Euros'] = conteo_mensual['Cantidad'] * 80
     y_col = 'Cantidad' if vista_grafico == "Nº de Noticias" else 'Euros'
@@ -119,28 +122,18 @@ if st.session_state.df_original is not None:
         lambda x: '#E63946' if x in seleccion_meses else '#D3D3D3'
     )
 
-    st.write(f"### 📈 Evolución y Tendencia")
+    st.write(f"### 📈 Evolución Histórica (2025-2026)")
     
-    base = alt.Chart(conteo_mensual).encode(
-        x=alt.X('Mes-Grafico:N', title='Mes', sort=alt.SortField(field='Orden_Mes', order='ascending'))
-    )
-
-    barras = base.mark_bar().encode(
+    chart = alt.Chart(conteo_mensual).mark_bar().encode(
+        x=alt.X('Mes-Grafico:N', title='Mes', sort=alt.SortField(field='Orden_Mes', order='ascending')),
         y=alt.Y(f'{y_col}:Q', title=y_col),
         color=alt.Color('Color:N', scale=None),
         tooltip=['Mes-Grafico', y_col]
-    )
+    ).properties(height=400)
+    
+    st.altair_chart(chart, use_container_width=True)
 
-    # Línea de tendencia basada en los datos reales de los meses cerrados y el actual
-    linea_tendencia = barras.transform_regression('Orden_Mes', y_col).mark_line(
-        color='#1D3557', 
-        strokeDash=[5,5],
-        size=3
-    )
-
-    st.altair_chart((barras + linea_tendencia).properties(height=400), use_container_width=True)
-
-    # 3. TABLA
+    # 3. TABLA (Filtrada)
     st.write(f"### 📋 Detalle de Artículos")
     df_tabla = df_total[df_total['Mes-Filtro'].isin(seleccion_meses)].sort_values('Fecha_dt', ascending=False).copy()
     df_tabla['Fecha_Pub'] = df_tabla['Fecha_dt'].dt.strftime('%d-%m-%Y')
@@ -151,10 +144,10 @@ if st.session_state.df_original is not None:
         use_container_width=True,
         column_config={
             "URL": st.column_config.LinkColumn("Enlace"),
-            "Mes-Filtro": "Mes (MM-AAAA)",
+            "Mes-Filtro": "Mes",
             "Fecha_Pub": "Publicado"
         },
         hide_index=True
     )
 else:
-    st.info("👋 Haz clic en 'Actualizar Datos' para analizar tu ritmo de publicación.")
+    st.info("👋 Haz clic en 'Actualizar Datos' para ver el resumen de 2026.")
