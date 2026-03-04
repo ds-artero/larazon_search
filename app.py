@@ -83,10 +83,12 @@ if st.button("🚀 Actualizar Datos"):
         # Limpieza y formateo de datos
         df['Fecha_dt'] = pd.to_datetime(df['Fecha'])
         df = df.sort_values('Fecha_dt')
-        df['Mes-Año'] = df['Fecha_dt'].dt.strftime('%b-%Y').str.upper()
         
-        # Agrupación y Cálculo (Aseguramos tipos numéricos)
-        conteo_mensual = df.groupby(['Mes-Año'], sort=False).size().reset_index(name='Cantidad')
+        # Columna para el gráfico (Texto: ENE-2025)
+        df['Mes-Año-Grafico'] = df['Fecha_dt'].dt.strftime('%b-%Y').str.upper()
+        
+        # Agrupación y Cálculo
+        conteo_mensual = df.groupby(['Mes-Año-Grafico'], sort=False).size().reset_index(name='Cantidad')
         conteo_mensual['Cantidad'] = conteo_mensual['Cantidad'].astype(int)
         conteo_mensual['Euros'] = (conteo_mensual['Cantidad'] * 80).astype(float)
         
@@ -100,13 +102,12 @@ if st.button("🚀 Actualizar Datos"):
             titulo_y = "Importe total (€)"
             limite_y = float(conteo_mensual['Euros'].max() + 400)
 
-        # Gráfico Altair (Versión simplificada para evitar SchemaValidationError)
+        # Gráfico Altair
         st.write(f"### 📈 {titulo_y} por Mes")
-        
         chart = alt.Chart(conteo_mensual).mark_bar(color='#E63946').encode(
-            x=alt.X('Mes-Año:N', title='Mes', sort=None),
+            x=alt.X('Mes-Año-Grafico:N', title='Mes', sort=None),
             y=alt.Y(f'{y_col}:Q', title=titulo_y, scale=alt.Scale(domain=[0, limite_y])),
-            tooltip=['Mes-Año', y_col]
+            tooltip=['Mes-Año-Grafico', y_col]
         ).properties(height=400)
         
         st.altair_chart(chart, use_container_width=True)
@@ -118,17 +119,33 @@ if st.button("🚀 Actualizar Datos"):
         m2.metric("Precio unitario", "80 €")
         m3.metric("Total Facturado", f"{total_noticias * 80} €")
 
-        # Tabla
+        # --- SECCIÓN DE TABLA ACTUALIZADA ---
         st.write("### 📋 Histórico de Artículos")
         df_display = df.sort_values('Fecha_dt', ascending=False).copy()
-        df_display['Fecha'] = df_display['Fecha_dt'].dt.strftime('%d-%m-%Y')
+        
+        # Formateamos las columnas de fecha
+        df_display['Fecha_Original'] = df_display['Fecha_dt'].dt.strftime('%d-%m-%Y')
+        df_display['Mes'] = df_display['Fecha_dt'].dt.strftime('%m-%A').str.replace(r'^[A-Za-z]+', lambda x: x.group(0), regex=True) # Fallback simple
+        # Corrección directa para el formato MM-AAAA
+        df_display['Mes'] = df_display['Fecha_dt'].dt.strftime('%m-%Y') 
+        
+        # Insertar contador
         df_display.insert(0, '№', range(1, len(df_display) + 1))
         
+        # Mostrar tabla con la nueva columna 'Mes'
         st.dataframe(
-            df_display[['№', 'Título', 'Fecha', 'URL']],
+            df_display[['№', 'Título', 'Fecha_Original', 'Mes', 'URL']],
             use_container_width=True,
-            column_config={"URL": st.column_config.LinkColumn("Enlace")},
+            column_config={
+                "URL": st.column_config.LinkColumn("Enlace"),
+                "Fecha_Original": "Fecha Pub.",
+                "Mes": "Mes (MM-AAAA)"
+            },
             hide_index=True
         )
     else:
         st.warning("No hay datos para mostrar de 2025.")
+
+# Pie de página
+st.markdown("---")
+st.caption("Desarrollado para el seguimiento de facturación de Claudia Zapater.")
